@@ -9,6 +9,7 @@ const TuziClient = require('../services/tuziClient');
 const { success, error } = require('../utils/response');
 const { splitModelsByCategory } = require('../utils/tuziModels');
 const ImageJobStore = require('../services/imageJobStore');
+const { modelSupportsMultiReferenceImage, imageRefCount } = require('../utils/imageModelCapabilities');
 
 function upstreamMessage(err) {
   const d = err.response?.data;
@@ -58,6 +59,12 @@ function getProxyParams(req, overrides = {}) {
 
 router.post('/v1/images/generations', flexibleAuth, quotaCheck, async (req, res) => {
   try {
+    const b = req.body || {};
+    const img = b.image != null ? b.image : b.images;
+    const nRefs = imageRefCount(img);
+    if (nRefs > 1 && !modelSupportsMultiReferenceImage(b.model)) {
+      return error(res, '该模型不支持在一次请求中上传多张参考图', 400);
+    }
     const result = await handleSyncRequest(getProxyParams(req, {
       endpoint: '/v1/images/generations',
       requestType: 'image',
@@ -101,6 +108,10 @@ router.post('/v1/image/image-to-image', flexibleAuth, quotaCheck, (req, res) => 
     Object.keys(body).forEach((k) => {
       if (body[k] === undefined || body[k] === '') delete body[k];
     });
+    const nRefs = imageRefCount(body.image);
+    if (nRefs > 1 && !modelSupportsMultiReferenceImage(body.model)) {
+      return error(res, '该模型不支持在一次请求中上传多张参考图，请改用「生成印花图」模式或更换模型', 400);
+    }
     const proxyParams = getProxyParams(req, {
       endpoint: '/v1/images/generations',
       requestType: 'image',
@@ -181,7 +192,7 @@ router.get('/v1/tasks/:taskId', flexibleAuth, async (req, res) => {
       return success(res, {
         task_id: req.params.taskId,
         status: log.status === 'success' ? 'completed' : 'failed',
-        video_url: asset?.cached_path ? `/api/assets/${asset.id}/file` : null,
+        video_url: asset ? `/api/assets/${asset.id}/file` : null,
         error: log.error_message,
       });
     }

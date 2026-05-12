@@ -1,7 +1,6 @@
 const UsageLog = require('../models/UsageLog');
 const GeneratedAsset = require('../models/GeneratedAsset');
 const TuziClient = require('./tuziClient');
-const { downloadAndCache } = require('./assetService');
 
 let intervalId = null;
 
@@ -50,19 +49,11 @@ async function handleCompleted(log, taskData) {
     return;
   }
 
-  try {
-    const cached = await downloadAndCache(videoUrl, log.request_type);
-    GeneratedAsset.updateStatus(
-      assets[0].id, 'completed', cached.filePath, cached.size,
-      null, null, log.video_duration,
-      'video/mp4'
-    );
-    UsageLog.updateStatus(log.id, 'success');
-  } catch (err) {
-    console.error(`[poller] Failed to download asset ${assets[0].id}:`, err.message);
-    GeneratedAsset.updateStatus(assets[0].id, 'failed', null);
-    UsageLog.updateStatus(log.id, 'failed', `Download failed: ${err.message}`);
-  }
+  GeneratedAsset.setRemoteSourceAndComplete(assets[0].id, videoUrl, {
+    duration: log.video_duration,
+    mimeType: 'video/mp4',
+  });
+  UsageLog.updateStatus(log.id, 'success');
 }
 
 function start(intervalMs = 10000) {

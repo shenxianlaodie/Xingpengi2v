@@ -62,6 +62,15 @@ const GeneratedAsset = {
     );
   },
 
+  setRemoteSourceAndComplete(id, sourceUrl, { width, height, duration, mimeType } = {}) {
+    this._db().run(
+      `UPDATE generated_assets SET status = 'completed', source_url = ?, cached_path = NULL, file_size = NULL,
+       width = COALESCE(?, width), height = COALESCE(?, height), duration = COALESCE(?, duration), mime_type = COALESCE(?, mime_type)
+       WHERE id = ?`,
+      [sourceUrl, width ?? null, height ?? null, duration ?? null, mimeType ?? null, id],
+    );
+  },
+
   deleteById(id, userId, role) {
     const isAdminRole = role === 'admin' || role === 'super_admin';
     if (isAdminRole) {

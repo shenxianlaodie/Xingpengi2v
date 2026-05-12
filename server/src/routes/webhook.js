@@ -2,7 +2,6 @@ const { Router } = require('express');
 const { getDb } = require('../config/database');
 const UsageLog = require('../models/UsageLog');
 const GeneratedAsset = require('../models/GeneratedAsset');
-const { downloadAndCache } = require('../services/assetService');
 const { success } = require('../utils/response');
 
 const router = Router();
@@ -50,20 +49,18 @@ router.post('/tuzi', async (req, res) => {
       const assets = GeneratedAsset.findByTuziTaskId(taskId);
 
       for (let i = 0; i < urls.length; i++) {
-        const url = typeof urls[i] === 'string' ? urls[i] : urls[i].url;
-        if (assets[i] && url) {
-          try {
-            const cached = await downloadAndCache(url, usageLog.request_type);
-            GeneratedAsset.updateStatus(
-              assets[i].id, 'completed', cached.filePath, cached.size,
-              urls[i].width, urls[i].height, urls[i].duration,
-              usageLog.request_type === 'video' ? 'video/mp4' : 'image/png'
-            );
-          } catch (err) {
-            console.error(`[webhook] Download failed for asset ${assets[i].id}:`, err.message);
-            GeneratedAsset.updateStatus(assets[i].id, 'failed', null);
-          }
-        }
+        const row = urls[i];
+        const url = typeof row === 'string' ? row : row?.url;
+        if (!assets[i] || !url) continue;
+        const w = typeof row === 'object' && row ? row.width : null;
+        const h = typeof row === 'object' && row ? row.height : null;
+        const d = typeof row === 'object' && row ? row.duration : null;
+        GeneratedAsset.setRemoteSourceAndComplete(assets[i].id, url, {
+          width: w,
+          height: h,
+          duration: d,
+          mimeType: usageLog.request_type === 'video' ? 'video/mp4' : 'image/png',
+        });
       }
     } else if (status === 'failed' || status === 'error') {
       const errorMessage = body.error || body.data?.error || 'Upstream task failed';

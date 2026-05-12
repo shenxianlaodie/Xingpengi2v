@@ -45,7 +45,34 @@
                 <el-icon class="el-icon--upload" size="48"><UploadFilled /></el-icon>
                 <div class="el-upload__text">拖拽多张图片到此处，或点击选择</div>
               </el-upload>
-              <p class="upload-hint">按列表顺序逐张生成，共用下方提示词与参数</p>
+              <p class="upload-hint">按所选模式与顺序生成，共用下方提示词与参数</p>
+              <div class="batch-mode-block">
+                <div class="batch-mode-title">批量模式</div>
+                <el-radio-group v-model="batchMode" class="batch-mode-radio">
+                  <el-radio label="stamp">生成印花图（每张单独作参考）</el-radio>
+                  <el-radio label="master">主图模式（固定一张主图，与其余各张两两参考）</el-radio>
+                  <el-radio label="pair">两两模式（按上传顺序两两一组作参考）</el-radio>
+                </el-radio-group>
+                <template v-if="batchMode === 'master' && batchUploadList.length">
+                  <div class="master-pick-title">选择主图</div>
+                  <el-radio-group v-model="masterImageIndex" class="master-radio-group">
+                    <el-radio
+                      v-for="(uf, idx) in batchUploadList"
+                      :key="uf.uid"
+                      :label="idx"
+                    >
+                      {{ uf.name || `图片${idx + 1}` }}
+                    </el-radio>
+                  </el-radio-group>
+                </template>
+                <el-alert
+                  v-if="pairModesModelBlocked"
+                  type="warning"
+                  :closable="false"
+                  title="该模型不支持主图模式和两两模式（一次请求需 2 张参考图时），请改用「生成印花图」或更换模型。"
+                  class="batch-mode-alert"
+                />
+              </div>
             </el-tab-pane>
             <el-tab-pane label="图片链接" name="url">
               <el-input v-model="imageUrl" placeholder="公网可访问的图片 URL" />
@@ -99,7 +126,7 @@
                 style="width:100%"
                 @click="handleBatchGenerate"
               >
-                {{ batchSubmitting ? '批量生成中...' : `批量生成（${batchUploadList.length} 张）` }}
+                {{ batchSubmitting ? '批量生成中...' : `批量生成（${batchJobTotal} 次）` }}
               </el-button>
             </el-form-item>
           </el-form>
@@ -155,6 +182,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { submitImageToImageJob, getImageJob, uploadImage } from '@/api/generate'
 import { useTuziModelLists } from '@/composables/useTuziModelLists'
 import { getImageGenSizePresets } from '@/utils/imageGenSizePresets'
+import { modelSupportsMultiReferenceImage } from '@/utils/imageModelCapabilities'
 import { ElMessage } from 'element-plus'
 
 const { imageModels, allCount, loading, error, fetchLists } = useTuziModelLists()
@@ -164,6 +192,8 @@ const imageUrl = ref('')
 const imageFile = ref(null)
 const uploadedImage = ref(null)
 const batchUploadList = ref([])
+const batchMode = ref('stamp')
+const masterImageIndex = ref(0)
 const model = ref('')
 const prompt = ref('')
 const size = ref('')
@@ -183,12 +213,42 @@ const batchPhase = ref('')
 const batchProgressPct = ref(0)
 const batchResults = ref([])
 
+const batchJobTotal = computed(() => {
+  const list = batchUploadList.value
+  const n = list.length
+  if (!n) return 0
+  if (batchMode.value === 'stamp') return n
+  if (batchMode.value === 'master') return Math.max(0, n - 1)
+  return Math.ceil(n / 2)
+})
+
+const pairModesModelBlocked = computed(() => {
+  if (!model.value || modelSupportsMultiReferenceImage(model.value)) return false
+  if (batchMode.value === 'master') return true
+  if (batchMode.value === 'pair' && batchUploadList.value.length >= 2) return true
+  return false
+})
+
 const canSubmit = computed(() => {
   if (!model.value || !prompt.value.trim()) return false
   if (imageMode.value === 'url') return !!imageUrl.value.trim()
   if (imageMode.value === 'upload') return !!imageFile.value
-  return batchUploadList.value.length > 0
+  const n = batchUploadList.value.length
+  if (!n) return false
+  if (pairModesModelBlocked.value) return false
+  if (batchMode.value === 'master') {
+    if (n < 2) return false
+    return modelSupportsMultiReferenceImage(model.value)
+  }
+  if (batchMode.value === 'pair' && n >= 2) {
+    return modelSupportsMultiReferenceImage(model.value)
+  }
+  return true
 })
+
+watch(batchUploadList, (files) => {
+  if (masterImageIndex.value >= files.length) masterImageIndex.value = 0
+}, { deep: true })
 
 watch(imageModels, (list) => {
   if (!list.length) return
@@ -258,15 +318,25 @@ function collectUrlsFromRes(res) {
   return [...new Set(urls)]
 }
 
-function buildBody(refUrl) {
+function buildBody(imageField) {
   const body = {
     model: model.value,
     prompt: prompt.value.trim(),
-    image: refUrl,
+    image: imageField,
   }
   if (size.value.trim()) body.size = size.value.trim()
   if (n.value >= 1 && n.value <= 10) body.n = n.value
   return body
+}
+
+async function submitAndWaitJob(imageField) {
+  const submit = await submitImageToImageJob(buildBody(imageField))
+  if (submit.code !== 0) throw new Error(submit.message || '提交失败')
+  const jobId = submit.data?.job_id
+  if (!jobId) throw new Error('未返回任务 id')
+  const done = await waitImageJob(jobId)
+  if (!done.ok) throw new Error(done.err)
+  return collectUrlsFromRes({ code: 0, data: done.data })
 }
 
 async function handleSubmit() {
@@ -282,22 +352,7 @@ async function handleSubmit() {
         return
       }
     }
-    const submit = await submitImageToImageJob(buildBody(refUrl))
-    if (submit.code !== 0) {
-      ElMessage.error(submit.message || '提交失败')
-      return
-    }
-    const jobId = submit.data?.job_id
-    if (!jobId) {
-      ElMessage.error('未返回任务 id')
-      return
-    }
-    const done = await waitImageJob(jobId)
-    if (!done.ok) {
-      ElMessage.error(done.err)
-      return
-    }
-    resultUrls.value = collectUrlsFromRes({ code: 0, data: done.data })
+    resultUrls.value = await submitAndWaitJob(refUrl)
     if (!resultUrls.value.length) ElMessage.warning('未解析到图片地址')
     else ElMessage.success('完成')
   } catch (e) {
@@ -307,51 +362,120 @@ async function handleSubmit() {
   }
 }
 
+function pushBatchRow(name, urls, err) {
+  const row = {
+    index: batchResults.value.length + 1,
+    name,
+    status: err ? '失败' : '完成',
+    imageUrl: !err && urls.length ? urls[0] : '',
+    error: err ? (err.response?.data?.message || err.message || String(err)) : '',
+  }
+  batchResults.value.push(row)
+}
+
 async function handleBatchGenerate() {
   const list = batchUploadList.value.map((u) => u.raw).filter(Boolean)
   if (!list.length) return
+  if (batchMode.value === 'master' && list.length < 2) {
+    ElMessage.warning('主图模式至少需要 2 张图')
+    return
+  }
+  if (pairModesModelBlocked.value) {
+    ElMessage.error('该模型不支持主图模式和两两模式')
+    return
+  }
   batchSubmitting.value = true
   batchResults.value = []
   batchProgressPct.value = 0
-  const total = list.length
+  const totalJobs = Math.max(1, batchJobTotal.value)
+  let doneJobs = 0
+  const bumpProgress = () => {
+    doneJobs += 1
+    batchProgressPct.value = Math.min(100, Math.round((doneJobs / totalJobs) * 100))
+  }
   try {
-    for (let i = 0; i < total; i++) {
-      const file = list[i]
-      const name = file.name || `图片${i + 1}`
-      batchPhase.value = `正在处理 ${i + 1}/${total}：${name}`
-      batchProgressPct.value = Math.round((i / total) * 100)
-      try {
-        const uploadRes = await uploadImage(file)
-        const refUrl = uploadRes.data?.url
-        if (!refUrl) throw new Error('上传失败')
-        const submit = await submitImageToImageJob(buildBody(refUrl))
-        if (submit.code !== 0) throw new Error(submit.message || '提交失败')
-        const jobId = submit.data?.job_id
-        if (!jobId) throw new Error('未返回任务 id')
-        const done = await waitImageJob(jobId)
-        if (!done.ok) throw new Error(done.err)
-        const urls = collectUrlsFromRes({ code: 0, data: done.data })
-        if (!urls.length) throw new Error('未解析到图片地址')
-        batchResults.value.push({
-          index: i + 1,
-          name,
-          status: '完成',
-          imageUrl: urls[0],
-          error: '',
-        })
-      } catch (e) {
-        batchResults.value.push({
-          index: i + 1,
-          name,
-          status: '失败',
-          imageUrl: '',
-          error: e.response?.data?.message || e.message || '错误',
-        })
+    if (batchMode.value === 'stamp') {
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i]
+        const name = file.name || `图片${i + 1}`
+        batchPhase.value = `印花 ${i + 1}/${list.length}：${name}`
+        try {
+          const uploadRes = await uploadImage(file)
+          const refUrl = uploadRes.data?.url
+          if (!refUrl) throw new Error('上传失败')
+          const urls = await submitAndWaitJob(refUrl)
+          if (!urls.length) throw new Error('未解析到图片地址')
+          pushBatchRow(name, urls, null)
+        } catch (e) {
+          pushBatchRow(name, [], e)
+        }
+        bumpProgress()
+      }
+    } else if (batchMode.value === 'master') {
+      const mi = masterImageIndex.value
+      const masterFile = list[mi]
+      const masterName = masterFile.name || `图片${mi + 1}`
+      batchPhase.value = `上传主图：${masterName}`
+      const mUp = await uploadImage(masterFile)
+      const masterUrl = mUp.data?.url
+      if (!masterUrl) throw new Error('主图上传失败')
+      for (let i = 0; i < list.length; i++) {
+        if (i === mi) continue
+        const file = list[i]
+        const name = file.name || `图片${i + 1}`
+        batchPhase.value = `主图+副图：${masterName} + ${name}`
+        try {
+          const up = await uploadImage(file)
+          const url = up.data?.url
+          if (!url) throw new Error('上传失败')
+          const urls = await submitAndWaitJob([masterUrl, url])
+          if (!urls.length) throw new Error('未解析到图片地址')
+          pushBatchRow(`${masterName} + ${name}`, urls, null)
+        } catch (e) {
+          pushBatchRow(`${masterName} + ${name}`, [], e)
+        }
+        bumpProgress()
+      }
+    } else {
+      for (let i = 0; i < list.length; i += 2) {
+        const fileA = list[i]
+        const fileB = list[i + 1]
+        const nameA = fileA.name || `图片${i + 1}`
+        if (fileB) {
+          const nameB = fileB.name || `图片${i + 2}`
+          batchPhase.value = `两两：${nameA} + ${nameB}`
+          try {
+            const [upA, upB] = await Promise.all([uploadImage(fileA), uploadImage(fileB)])
+            const urlA = upA.data?.url
+            const urlB = upB.data?.url
+            if (!urlA || !urlB) throw new Error('上传失败')
+            const urls = await submitAndWaitJob([urlA, urlB])
+            if (!urls.length) throw new Error('未解析到图片地址')
+            pushBatchRow(`${nameA} + ${nameB}`, urls, null)
+          } catch (e) {
+            pushBatchRow(`${nameA} + ${nameB}`, [], e)
+          }
+        } else {
+          batchPhase.value = `单张（奇数张末位）：${nameA}`
+          try {
+            const up = await uploadImage(fileA)
+            const url = up.data?.url
+            if (!url) throw new Error('上传失败')
+            const urls = await submitAndWaitJob(url)
+            if (!urls.length) throw new Error('未解析到图片地址')
+            pushBatchRow(`${nameA}（单张）`, urls, null)
+          } catch (e) {
+            pushBatchRow(`${nameA}（单张）`, [], e)
+          }
+        }
+        bumpProgress()
       }
     }
     batchProgressPct.value = 100
     batchPhase.value = '全部结束'
     ElMessage.success('批量任务已结束')
+  } catch (e) {
+    ElMessage.error(e.message || '批量任务失败')
   } finally {
     batchSubmitting.value = false
   }
@@ -374,4 +498,10 @@ async function handleBatchGenerate() {
 .batch-table-wrap { margin-top: 8px; }
 .err-cell { color: #f56c6c; font-size: 12px; }
 .size-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.batch-mode-block { margin-top: 12px; }
+.batch-mode-title { font-size: 13px; color: #666; margin-bottom: 8px; }
+.batch-mode-radio { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.master-pick-title { font-size: 13px; color: #666; margin: 10px 0 8px; }
+.master-radio-group { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.batch-mode-alert { margin-top: 8px; }
 </style>

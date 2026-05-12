@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const config = require('../config');
 const GeneratedAsset = require('../models/GeneratedAsset');
@@ -22,19 +21,20 @@ function getExtFromUrl(url) {
 }
 
 async function downloadAndCache(url, type) {
-  const dateDir = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+  const dateDir = new Date().toISOString().slice(0, 7);
   const ext = getExtFromUrl(url);
   const filename = `${uuidv4()}${ext}`;
   const dir = path.join(config.uploadDir, type === 'video' ? 'videos' : 'images', dateDir);
   ensureDir(dir);
   const filePath = path.join(dir, filename);
 
+  const axios = require('axios');
   const response = await axios({
     method: 'get',
     url,
     responseType: 'stream',
     timeout: 120000,
-    maxContentLength: 100 * 1024 * 1024, // 100MB
+    maxContentLength: 100 * 1024 * 1024,
   });
 
   const writer = fs.createWriteStream(filePath);
@@ -50,6 +50,14 @@ async function downloadAndCache(url, type) {
   });
 }
 
+function extractResultUrl(item) {
+  if (typeof item === 'string') return item.trim() || null;
+  if (!item || typeof item !== 'object') return null;
+  if (item.url && typeof item.url === 'string') return item.url.trim();
+  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
+  return null;
+}
+
 async function processGenerationResult(usageLogId, userId, requestType, prompt, tuziResponse) {
   const data = tuziResponse.data || tuziResponse;
   let results = Array.isArray(data) ? data : (data.results || data.images || data.videos || []);
@@ -57,41 +65,34 @@ async function processGenerationResult(usageLogId, userId, requestType, prompt, 
 
   const seenUrls = new Set();
   results = results.filter((item) => {
-    const u = typeof item === 'string' ? item : (item && item.url) ? item.url : null;
-    if (typeof u !== 'string' || !u) return true;
+    const u = extractResultUrl(item);
+    if (!u) return true;
     if (seenUrls.has(u)) return false;
     seenUrls.add(u);
     return true;
   });
 
-  const downloadResults = await Promise.all(results.map(async (item) => {
-    const url = item.url || item;
-    try {
-      const cached = await downloadAndCache(url, requestType);
-      return { item, url, cachedPath: cached.filePath, fileSize: cached.size, error: null };
-    } catch (err) {
-      console.error(`[asset] Failed to cache ${url}:`, err.message);
-      return { item, url, cachedPath: null, fileSize: null, error: err };
-    }
-  }));
-
-  return downloadResults.map(({ item, url, cachedPath, fileSize }) => {
+  const out = [];
+  for (const item of results) {
+    const url = extractResultUrl(item);
+    if (!url) continue;
     const asset = GeneratedAsset.create({
       userId,
       usageLogId,
       assetType: requestType === 'video' ? 'video' : 'image',
       prompt,
       sourceUrl: url,
-      cachedPath,
-      fileSize,
-      width: item.width,
-      height: item.height,
-      duration: item.duration,
+      cachedPath: null,
+      fileSize: null,
+      width: typeof item === 'object' && item ? item.width : null,
+      height: typeof item === 'object' && item ? item.height : null,
+      duration: typeof item === 'object' && item ? item.duration : null,
       mimeType: requestType === 'video' ? 'video/mp4' : 'image/png',
-      status: cachedPath ? 'completed' : 'pending',
+      status: 'completed',
     });
-    return { ...asset, localUrl: cachedPath ? `/api/assets/${asset.id}/file` : url };
-  });
+    out.push({ ...asset, localUrl: `/api/assets/${asset.id}/file` });
+  }
+  return out;
 }
 
 module.exports = { downloadAndCache, processGenerationResult, ensureDir };
