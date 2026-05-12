@@ -19,13 +19,9 @@
         <el-card>
           <template #header>快捷操作</template>
           <el-space wrap>
-            <el-tooltip content="暂时不可使用" placement="top">
-              <span class="btn-wrap">
-                <el-button type="primary" disabled>
+            <el-button type="primary" @click="$router.push('/image-to-image')">
                   <el-icon><PictureFilled /></el-icon> 图生图
                 </el-button>
-              </span>
-            </el-tooltip>
             <el-button type="success" @click="$router.push('/image-to-video')">
               <el-icon><VideoCameraFilled /></el-icon> 图生视频
             </el-button>

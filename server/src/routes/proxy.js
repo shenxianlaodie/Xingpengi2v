@@ -7,6 +7,7 @@ const UsageLog = require('../models/UsageLog');
 const GeneratedAsset = require('../models/GeneratedAsset');
 const TuziClient = require('../services/tuziClient');
 const { success, error } = require('../utils/response');
+const { splitModelsByCategory } = require('../utils/tuziModels');
 
 function upstreamMessage(err) {
   const d = err.response?.data;
@@ -30,6 +31,17 @@ function flexibleAuth(req, res, next) {
   }
   return auth(req, res, next);
 }
+
+router.get('/v1/tuzi/models', flexibleAuth, async (_req, res) => {
+  try {
+    const raw = await TuziClient.listModels();
+    const { image, video, all } = splitModelsByCategory(raw);
+    return success(res, { image_models: image, video_models: video, all_count: all.length });
+  } catch (err) {
+    console.error('[proxy] list models error:', err);
+    return error(res, upstreamMessage(err), upstreamStatus(err));
+  }
+});
 
 function getProxyParams(req, overrides = {}) {
   const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
@@ -62,8 +74,47 @@ router.post('/v1/images/generations', flexibleAuth, quotaCheck, async (req, res)
   }
 });
 
-router.post('/v1/image/image-to-image', flexibleAuth, (_req, res) => {
-  return error(res, '图生图功能暂时不可用', 403);
+router.post('/v1/image/image-to-image', flexibleAuth, quotaCheck, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.model || !String(b.prompt).trim()) {
+      return error(res, '请填写模型与提示词', 400);
+    }
+    const img = b.image != null ? b.image : b.images;
+    if (img == null || (typeof img === 'string' && !img.trim()) || (Array.isArray(img) && !img.length)) {
+      return error(res, '请提供参考图（上传后 URL 或 image 字段）', 400);
+    }
+    const body = {
+      model: b.model,
+      prompt: String(b.prompt).trim(),
+      image: img,
+      size: b.size,
+      n: b.n,
+      response_format: b.response_format || 'url',
+      quality: b.quality,
+      style: b.style,
+      seed: b.seed,
+      guidance_scale: b.guidance_scale,
+      user: b.user,
+    };
+    Object.keys(body).forEach((k) => {
+      if (body[k] === undefined || body[k] === '') delete body[k];
+    });
+    const result = await handleSyncRequest(getProxyParams(req, {
+      endpoint: '/v1/images/generations',
+      requestType: 'image',
+      body,
+      prompt: body.prompt,
+    }));
+    return success(res, {
+      assets: result.assets,
+      usage: { cost: result.usageLog.cost, id: result.usageLog.id },
+      ...result.tuziResponse,
+    });
+  } catch (err) {
+    console.error('[proxy] image-to-image error:', err);
+    return error(res, upstreamMessage(err), upstreamStatus(err));
+  }
 });
 
 router.post('/v1/video/generations', flexibleAuth, quotaCheck, async (req, res) => {

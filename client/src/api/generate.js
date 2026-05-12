@@ -1,7 +1,11 @@
 import api from './index'
 
-export function imageToImage(formData) {
-  return api.post('/v1/image/image-to-image', formData)
+export function listTuziModels() {
+  return api.get('/v1/tuzi/models')
+}
+
+export function imageToImage(body) {
+  return api.post('/v1/image/image-to-image', body)
 }
 
 export function imageToVideo(data) {

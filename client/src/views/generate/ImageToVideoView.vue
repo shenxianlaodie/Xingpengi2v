@@ -2,6 +2,7 @@
   <div>
     <h2>图生视频</h2>
     <p class="desc">单张或链接生成；批量模式按顺序逐张使用同一套提示词与参数生成，完成后可分别下载。</p>
+    <el-alert v-if="modelsError" type="warning" :closable="false" :title="modelsError" style="margin-bottom:12px" />
     <el-row :gutter="20">
       <el-col :span="10">
         <el-card>
@@ -45,8 +46,11 @@
           </el-tabs>
           <el-form style="margin-top:16px" label-position="top">
             <el-form-item label="模型">
-              <el-select v-model="model" style="width:100%">
-                <el-option label="Seedance 1.5 Pro (720p)" value="doubao-seedance-1-5-pro_720p" />
+              <el-select v-model="model" filterable style="width:100%" :loading="modelsLoading" placeholder="选择模型">
+                <el-option v-for="m in videoModels" :key="m.id" :label="m.id" :value="m.id">
+                  <span>{{ m.id }}</span>
+                  <span v-if="m.owned_by" style="float:right;color:#aaa;font-size:12px">{{ m.owned_by }}</span>
+                </el-option>
               </el-select>
             </el-form-item>
             <el-form-item label="动作描述（可选）">
@@ -146,9 +150,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, onMounted, watch } from 'vue'
 import { imageToVideo, getTaskStatus, uploadImage } from '@/api/generate'
+import { useTuziModelLists } from '@/composables/useTuziModelLists'
 import { ElMessage } from 'element-plus'
+
+const { videoModels, loading: modelsLoading, error: modelsError, fetchLists } = useTuziModelLists()
 
 const imageMode = ref('url')
 const imageUrl = ref('')
@@ -176,6 +183,16 @@ const canGenerate = computed(() => {
   if (imageMode.value === 'url') return !!imageUrl.value
   if (imageMode.value === 'upload') return !!imageFile.value
   return batchUploadList.value.length > 0
+})
+
+watch(videoModels, (list) => {
+  if (!list.length) return
+  const ids = list.map((m) => m.id)
+  if (!ids.includes(model.value)) model.value = ids[0]
+}, { immediate: true })
+
+onMounted(() => {
+  fetchLists()
 })
 
 function handleImageChange(file) {

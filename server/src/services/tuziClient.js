@@ -75,13 +75,13 @@ async function loadFirstFrameBinary(imageSource, imageUrl) {
 }
 
 const TuziClient = {
-  async imageGenerations(body) {
-    const res = await getClient().post('/v1/images/generations', body);
+  async listModels() {
+    const res = await getClient().get('/v1/models');
     return res.data;
   },
 
-  async imageToImage(body) {
-    const res = await getClient().post('/v1/images/image-to-image', body);
+  async imageGenerations(body) {
+    const res = await getClient().post('/v1/images/generations', body);
     return res.data;
   },
 

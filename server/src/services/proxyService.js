@@ -50,9 +50,6 @@ async function handleSyncRequest({ userId, isAdmin, apiKeyId, endpoint, requestT
     case '/v1/images/generations':
       tuziResponse = await TuziClient.imageGenerations(body);
       break;
-    case '/v1/images/image-to-image':
-      tuziResponse = await TuziClient.imageToImage(body);
-      break;
     case '/v1/chat/completions':
       tuziResponse = await TuziClient.chatCompletions(body);
       break;

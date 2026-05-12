@@ -17,7 +17,7 @@
           <el-icon><HomeFilled /></el-icon>
           <span>首页</span>
         </el-menu-item>
-        <el-menu-item index="/image-to-image" disabled>
+        <el-menu-item index="/image-to-image">
           <el-icon><PictureFilled /></el-icon>
           <span>图生图</span>
         </el-menu-item>
