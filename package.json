@@ -1,0 +1,10 @@
+{
+  "name": "tuzi-api",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n srv,web -c cyan,green \"npm run dev --prefix server\" \"npm run dev --prefix client\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
