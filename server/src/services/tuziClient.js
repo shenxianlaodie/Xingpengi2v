@@ -10,7 +10,7 @@ function getClient(contentType = 'application/json') {
 
   return axios.create({
     baseURL,
-    timeout: 120000,
+    timeout: config.tuziHttpTimeoutMs,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': contentType,

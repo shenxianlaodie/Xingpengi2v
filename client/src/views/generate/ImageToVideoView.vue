@@ -8,9 +8,6 @@
         <el-card>
           <template #header>输入</template>
           <el-tabs v-model="imageMode">
-            <el-tab-pane label="图片链接" name="url">
-              <el-input v-model="imageUrl" placeholder="输入图片 URL（需公网可访问）" />
-            </el-tab-pane>
             <el-tab-pane label="本地上传" name="upload">
               <el-upload
                 class="upload-area"
@@ -42,6 +39,9 @@
                 <div class="el-upload__text">拖拽多张图片到此处，或点击选择</div>
               </el-upload>
               <p class="upload-hint">按列表顺序逐张生成，共用下方提示词与参数</p>
+            </el-tab-pane>
+            <el-tab-pane label="图片链接" name="url">
+              <el-input v-model="imageUrl" placeholder="输入图片 URL（需公网可访问）" />
             </el-tab-pane>
           </el-tabs>
           <el-form style="margin-top:16px" label-position="top">
@@ -157,7 +157,7 @@ import { ElMessage } from 'element-plus'
 
 const { videoModels, loading: modelsLoading, error: modelsError, fetchLists } = useTuziModelLists()
 
-const imageMode = ref('url')
+const imageMode = ref('upload')
 const imageUrl = ref('')
 const uploadedImage = ref(null)
 const imageFile = ref(null)

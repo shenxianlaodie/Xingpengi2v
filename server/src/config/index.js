@@ -12,6 +12,10 @@ module.exports = {
   refreshTokenExpiresMs: 7 * 24 * 60 * 60 * 1000,
   tuziBaseUrl: process.env.TUZI_BASE_URL || 'https://api.tu-zi.com',
   tuziApiKey: process.env.TUZI_API_KEY || '',
+  tuziHttpTimeoutMs: Math.min(
+    600000,
+    Math.max(10000, parseInt(process.env.TUZI_HTTP_TIMEOUT_MS, 10) || 120000),
+  ),
   uploadDir: path.resolve(process.env.UPLOAD_DIR || './uploads'),
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
 };

@@ -46,7 +46,7 @@ app.use(cors({
 }));
 
 // Parsing
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '32mb' }));
 app.use(cookieParser());
 
 // Logging

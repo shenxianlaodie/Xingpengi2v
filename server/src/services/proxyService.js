@@ -34,6 +34,35 @@ function resolveImageSource(imageUrl) {
   return { imageSource: null, imageUrl };
 }
 
+async function embedLocalUploadAsDataUrl(val) {
+  if (val == null) return val;
+  if (Array.isArray(val)) {
+    return Promise.all(val.map((x) => embedLocalUploadAsDataUrl(x)));
+  }
+  const s = String(val);
+  if (!s || s.startsWith('data:')) return val;
+  const { imageSource } = resolveImageSource(s);
+  if (!imageSource) return val;
+  const buf = await fs.promises.readFile(imageSource);
+  const ext = (path.extname(imageSource).replace('.', '') || 'png').toLowerCase();
+  const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+    : ext === 'webp' ? 'image/webp'
+      : ext === 'gif' ? 'image/gif'
+        : 'image/png';
+  return `data:${mime};base64,${buf.toString('base64')}`;
+}
+
+async function normalizeImageBodyForUpstream(body) {
+  const upstreamBody = { ...body };
+  if (upstreamBody.image !== undefined && upstreamBody.image !== null) {
+    upstreamBody.image = await embedLocalUploadAsDataUrl(upstreamBody.image);
+  }
+  if (upstreamBody.images !== undefined && upstreamBody.images !== null) {
+    upstreamBody.images = await embedLocalUploadAsDataUrl(upstreamBody.images);
+  }
+  return upstreamBody;
+}
+
 function buildUsageLogParams({ userId, apiKeyId, endpoint, model, requestType, usageMetadata, status, errorMessage, cost, tuziTaskId, tuziRequestId, ip, userAgent }) {
   return {
     userId, apiKeyId, endpoint, model, requestType,
@@ -47,9 +76,11 @@ async function handleSyncRequest({ userId, isAdmin, apiKeyId, endpoint, requestT
   let tuziResponse;
 
   switch (endpoint) {
-    case '/v1/images/generations':
-      tuziResponse = await TuziClient.imageGenerations(body);
+    case '/v1/images/generations': {
+      const upstreamBody = await normalizeImageBodyForUpstream(body);
+      tuziResponse = await TuziClient.imageGenerations(upstreamBody);
       break;
+    }
     case '/v1/chat/completions':
       tuziResponse = await TuziClient.chatCompletions(body);
       break;

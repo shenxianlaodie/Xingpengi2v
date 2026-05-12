@@ -8,6 +8,7 @@ const GeneratedAsset = require('../models/GeneratedAsset');
 const TuziClient = require('../services/tuziClient');
 const { success, error } = require('../utils/response');
 const { splitModelsByCategory } = require('../utils/tuziModels');
+const ImageJobStore = require('../services/imageJobStore');
 
 function upstreamMessage(err) {
   const d = err.response?.data;
@@ -74,7 +75,7 @@ router.post('/v1/images/generations', flexibleAuth, quotaCheck, async (req, res)
   }
 });
 
-router.post('/v1/image/image-to-image', flexibleAuth, quotaCheck, async (req, res) => {
+router.post('/v1/image/image-to-image', flexibleAuth, quotaCheck, (req, res) => {
   try {
     const b = req.body || {};
     if (!b.model || !String(b.prompt).trim()) {
@@ -100,21 +101,50 @@ router.post('/v1/image/image-to-image', flexibleAuth, quotaCheck, async (req, re
     Object.keys(body).forEach((k) => {
       if (body[k] === undefined || body[k] === '') delete body[k];
     });
-    const result = await handleSyncRequest(getProxyParams(req, {
+    const proxyParams = getProxyParams(req, {
       endpoint: '/v1/images/generations',
       requestType: 'image',
       body,
       prompt: body.prompt,
-    }));
-    return success(res, {
-      assets: result.assets,
-      usage: { cost: result.usageLog.cost, id: result.usageLog.id },
-      ...result.tuziResponse,
     });
+    const jobId = ImageJobStore.create({ userId: proxyParams.userId });
+    setImmediate(async () => {
+      ImageJobStore.setRunning(jobId);
+      try {
+        const result = await handleSyncRequest(proxyParams);
+        const tr = result.tuziResponse;
+        if (tr && (tr.error || (tr.code !== undefined && tr.code !== 0 && tr.code !== 200))) {
+          ImageJobStore.fail(jobId, tr.message || tr.error?.message || '上游错误');
+          return;
+        }
+        ImageJobStore.complete(jobId, {
+          assets: result.assets,
+          usage: { cost: result.usageLog.cost, id: result.usageLog.id },
+          ...result.tuziResponse,
+        });
+      } catch (err) {
+        console.error('[proxy] image-to-image job error:', err);
+        ImageJobStore.fail(jobId, upstreamMessage(err));
+      }
+    });
+    return success(res, { job_id: jobId, status: 'queued' });
   } catch (err) {
     console.error('[proxy] image-to-image error:', err);
     return error(res, upstreamMessage(err), upstreamStatus(err));
   }
+});
+
+router.get('/v1/image/jobs/:jobId', flexibleAuth, (req, res) => {
+  const job = ImageJobStore.get(req.params.jobId);
+  if (!job) return error(res, '任务不存在', 404);
+  if (!ImageJobStore.canAccess(req, job)) return error(res, '无权查看', 403);
+  if (job.status === 'completed') {
+    return success(res, { status: job.status, result: job.result });
+  }
+  if (job.status === 'failed') {
+    return success(res, { status: job.status, error: job.error });
+  }
+  return success(res, { status: job.status });
 });
 
 router.post('/v1/video/generations', flexibleAuth, quotaCheck, async (req, res) => {

@@ -4,8 +4,12 @@ export function listTuziModels() {
   return api.get('/v1/tuzi/models')
 }
 
-export function imageToImage(body) {
+export function submitImageToImageJob(body) {
   return api.post('/v1/image/image-to-image', body)
+}
+
+export function getImageJob(jobId) {
+  return api.get(`/v1/image/jobs/${jobId}`)
 }
 
 export function imageToVideo(data) {

@@ -52,7 +52,17 @@ async function downloadAndCache(url, type) {
 
 async function processGenerationResult(usageLogId, userId, requestType, prompt, tuziResponse) {
   const data = tuziResponse.data || tuziResponse;
-  const results = Array.isArray(data) ? data : (data.results || data.images || data.videos || []);
+  let results = Array.isArray(data) ? data : (data.results || data.images || data.videos || []);
+  if (!Array.isArray(results)) results = [];
+
+  const seenUrls = new Set();
+  results = results.filter((item) => {
+    const u = typeof item === 'string' ? item : (item && item.url) ? item.url : null;
+    if (typeof u !== 'string' || !u) return true;
+    if (seenUrls.has(u)) return false;
+    seenUrls.add(u);
+    return true;
+  });
 
   const downloadResults = await Promise.all(results.map(async (item) => {
     const url = item.url || item;
