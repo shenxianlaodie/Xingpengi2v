@@ -70,37 +70,32 @@ router.post('/login', async (req, res) => {
       return error(res, '请输入邮箱和密码', 400);
     }
 
-    // Try regular user first, then admin
-    let user = User.findByEmail(email);
-    let isAdmin = false;
+    // Only admins can login with email/password; regular users must use DingTalk
+    let user = AdminUser.findByEmail(email);
 
     if (!user) {
-      user = AdminUser.findByEmail(email);
-      isAdmin = true;
+      // Check if this email belongs to a regular user — reject with hint
+      const regularUser = User.findByEmail(email);
+      if (regularUser) {
+        return error(res, '请使用钉钉扫码登录', 403);
+      }
+      return error(res, '邮箱或密码错误', 401);
     }
 
-    if (!user) return error(res, '邮箱或密码错误', 401);
     if (user.status !== 'active') return error(res, '账号已被禁用', 403);
 
     const valid = await comparePassword(password, user.password_hash);
     if (!valid) return error(res, '邮箱或密码错误', 401);
 
     const ip = req.requestInfo?.ip || req.ip;
-    if (isAdmin) {
-      AdminUser.updateLogin(user.id, ip);
-    } else {
-      User.updateLogin(user.id, ip);
-    }
-
-    const userId = isAdmin ? user.id : user.id;
-    const role = isAdmin ? user.role : 'user';
+    AdminUser.updateLogin(user.id, ip);
 
     const { token: refreshToken, family } = RefreshToken.generateAndStore({
-      ...(isAdmin ? { adminUserId: user.id } : { userId: user.id }),
+      adminUserId: user.id,
       family: uuidv4(),
     });
 
-    const accessToken = signAccessToken({ userId, role: isAdmin ? user.role : 'user' });
+    const accessToken = signAccessToken({ userId: user.id, role: user.role });
 
     res.cookie('rt', refreshToken, {
       httpOnly: true,
@@ -112,15 +107,11 @@ router.post('/login', async (req, res) => {
 
     return success(res, {
       user: {
-        id: userId,
+        id: user.id,
         username: user.username,
         email: user.email,
-        role: isAdmin ? user.role : 'user',
-        ...(isAdmin ? { permissions: JSON.parse(user.permissions || '{}') } : {
-          quota_total: user.quota_total,
-          quota_used: user.quota_used,
-          daily_limit: user.daily_limit,
-        }),
+        role: user.role,
+        permissions: JSON.parse(user.permissions || '{}'),
       },
       accessToken,
     });
@@ -168,9 +159,10 @@ router.post('/refresh', async (req, res) => {
     });
 
     let role = 'user';
+    let user = null;
     if (stored.admin_user_id) {
       const admin = AdminUser.findById(stored.admin_user_id);
-      if (admin) role = admin.role;
+      if (admin) { role = admin.role; user = admin; }
     }
 
     const accessToken = signAccessToken({
@@ -186,7 +178,18 @@ router.post('/refresh', async (req, res) => {
       path: '/api/auth',
     });
 
-    return success(res, { accessToken });
+    return success(res, {
+      accessToken,
+      ...(user && user.role !== 'user' ? {
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          permissions: JSON.parse(user.permissions || '{}'),
+        },
+      } : {}),
+    });
   } catch (err) {
     console.error('[auth] refresh error:', err);
     return error(res, '刷新失败');

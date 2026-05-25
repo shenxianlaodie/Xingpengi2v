@@ -29,8 +29,7 @@
         </el-button>
       </div>
 
-      <p class="link">还没有账号？<router-link to="/register">立即注册</router-link></p>
-    </div>
+          </div>
 
     <!-- QR Code Dialog -->
     <el-dialog v-model="qrVisible" title="钉钉扫码登录" width="360px" :close-on-click-modal="false" center>

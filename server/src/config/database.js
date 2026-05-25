@@ -149,8 +149,10 @@ async function initDatabase() {
     },
   };
 
-  // Run PRAGMAs
-  db._db.run('PRAGMA journal_mode = WAL');
+  // Run PRAGMAs — WAL mode disabled: sql.js runs in-memory with virtual FS;
+  // WAL/SHM side files fill the virtual disk and cause "disk I/O error" over time.
+  // The auto-save interval already persists to real disk.
+  db._db.run('PRAGMA journal_mode = DELETE');
   db._db.run('PRAGMA foreign_keys = ON');
 
   // Apply migrations

@@ -40,8 +40,8 @@ export function getAdmins() {
   return api.get('/admin/admins')
 }
 
-export function createAdmin(data) {
-  return api.post('/admin/admins', data)
+export function promoteToAdmin(userId, password, role) {
+  return api.post('/admin/admins/promote', { userId, password, role })
 }
 
 export function updateAdmin(id, data) {

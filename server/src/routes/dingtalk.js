@@ -2,11 +2,19 @@ const { Router } = require('express');
 const { v4: uuidv4 } = require('uuid');
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
-const { buildAuthUrl, exchangeCode, getUserInfo, getCredentials } = require('../services/dingtalk');
+const { buildAuthUrl, exchangeCode, getUserInfo } = require('../services/dingtalk');
 const { signAccessToken } = require('../utils/jwt');
 const { success, error } = require('../utils/response');
+const config = require('../config');
 
 const router = Router();
+
+/** 钉钉 redirect_uri 必须与授权 URL 一致；PUBLIC_ORIGIN 优先，避免 Vite 反代后 Host 变成 localhost:3002 */
+function publicBaseUrl(req) {
+  const fromEnv = (config.publicOrigin || '').replace(/\/+$/, '');
+  if (fromEnv) return fromEnv;
+  return `${req.protocol}://${req.get('host')}`.replace(/\/+$/, '');
+}
 
 // In-memory state store (keyed by state, value = { status, tokens, createdAt })
 const stateStore = new Map();
@@ -23,7 +31,7 @@ setInterval(() => {
 router.get('/dingtalk/url', (req, res) => {
   try {
     const state = uuidv4();
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/auth/dingtalk/callback`;
+    const redirectUri = `${publicBaseUrl(req)}/api/auth/dingtalk/callback`;
     const url = buildAuthUrl(redirectUri, state);
 
     stateStore.set(state, { status: 'pending', tokens: null, createdAt: Date.now() });
@@ -144,7 +152,7 @@ router.get('/dingtalk/callback', async (req, res) => {
 });
 
 function buildCallbackUrl(req) {
-  return `${req.protocol}://${req.get('host')}/api/auth/dingtalk/callback`;
+  return `${publicBaseUrl(req)}/api/auth/dingtalk/callback`;
 }
 
 function renderPage(title, message) {

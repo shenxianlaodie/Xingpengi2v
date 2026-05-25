@@ -30,7 +30,8 @@ router.get('/users', (req, res) => {
   const pageSize = parseInt(req.query.pageSize) || 20;
   const search = req.query.search || '';
   const status = req.query.status || '';
-  const result = User.list({ page, pageSize, search, status });
+  const excludeAdmins = req.query.exclude_admins === 'true';
+  const result = User.list({ page, pageSize, search, status, excludeAdmins });
   return paginated(res, { ...result, page, pageSize });
 });
 
@@ -108,25 +109,35 @@ router.get('/admins', superAdminOnly, (req, res) => {
   return success(res, admins);
 });
 
-// POST /api/admin/admins
-router.post('/admins', superAdminOnly, async (req, res) => {
+// POST /api/admin/admins/promote — promote an existing user to admin
+router.post('/admins/promote', superAdminOnly, async (req, res) => {
   try {
-    const { username, email, password, role, permissions } = req.body;
-    if (!username || !email || !password) {
-      return error(res, '请填写所有必填字段', 400);
+    const { userId, password, role } = req.body;
+    if (!userId || !password) {
+      return error(res, '请选择用户并设置登录密码', 400);
     }
-    const existing = AdminUser.findByEmail(email);
-    if (existing) return error(res, '邮箱已存在', 409);
+    if (password.length < 6) {
+      return error(res, '密码至少6位', 400);
+    }
+
+    const user = User.findById(userId);
+    if (!user) return error(res, '用户不存在', 404);
+
+    const existing = AdminUser.findByEmail(user.email);
+    if (existing) return error(res, '该用户已是管理员', 409);
 
     const admin = await AdminUser.create({
-      username, email, password, role: role || 'admin',
-      permissions: permissions || { manage_users: true, view_logs: true },
+      username: user.username,
+      email: user.email,
+      password,
+      role: role || 'admin',
+      permissions: { manage_users: true, view_logs: true },
       createdBy: req.admin.id,
     });
-    return success(res, admin, '管理员创建成功', 201);
+    return success(res, admin, '已提升为管理员', 201);
   } catch (err) {
-    console.error('[admin] create admin error:', err);
-    return error(res, '创建失败');
+    console.error('[admin] promote error:', err);
+    return error(res, '操作失败');
   }
 });
 

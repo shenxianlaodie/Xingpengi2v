@@ -18,4 +18,6 @@ module.exports = {
   ),
   uploadDir: path.resolve(process.env.UPLOAD_DIR || './uploads'),
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
+  /** 浏览器可访问的站点根（无末尾 /），用于钉钉 OAuth redirect_uri；反代后 req Host 常为 localhost 时需配置 */
+  publicOrigin: (process.env.PUBLIC_ORIGIN || '').replace(/\/+$/, ''),
 };

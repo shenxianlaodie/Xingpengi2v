@@ -28,6 +28,9 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const res = await refreshApi()
       accessToken.value = res.data.accessToken
+      if (res.data.user) {
+        user.value = res.data.user
+      }
       return true
     } catch {
       return false

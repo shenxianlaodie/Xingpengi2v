@@ -8,10 +8,12 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, 'src') },
   },
   server: {
+    host: '0.0.0.0',
     port: 5173,
+    allowedHosts: ['i2v.thinkpro.top', 'i2v.thinkpro.top:443'],
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:3002',
         changeOrigin: true,
       },
     },

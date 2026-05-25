@@ -68,7 +68,7 @@ const User = {
     );
   },
 
-  list({ page = 1, pageSize = 20, search = '', status = '' }) {
+  list({ page = 1, pageSize = 20, search = '', status = '', excludeAdmins = false }) {
     const conditions = [];
     const params = [];
     if (search) {
@@ -78,6 +78,9 @@ const User = {
     if (status) {
       conditions.push('status = ?');
       params.push(status);
+    }
+    if (excludeAdmins) {
+      conditions.push('email NOT IN (SELECT email FROM admin_users)');
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const total = this._db().get(`SELECT COUNT(*) as cnt FROM users ${where}`, params)?.cnt || 0;
